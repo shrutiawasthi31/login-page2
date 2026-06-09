@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-static-site:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required files
+        run: |
+          test -f index.html
+          test -f reference-legal-desk.jpg
+
+      - name: Validate HTML structure
+        run: |
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          html = Path("index.html").read_text(encoding="utf-8")
+
+          required_snippets = [
+              "LexReason Sign In",
+              "Access your <span>LexReason</span> workspace",
+              "Work Email",
+              "Password",
+              "Role",
+              "Login",
+          ]
+
+          for snippet in required_snippets:
+              if snippet not in html:
+                  raise SystemExit(f"Missing expected content: {snippet}")
+
+          class Parser(HTMLParser):
+              def error(self, message):
+                  raise RuntimeError(message)
+
+          Parser().feed(html)
+          print("HTML validation passed.")
+          PY
+
+      - name: Serve and smoke test
+        run: |
+          python3 -m http.server 8000 >/tmp/login-page2-server.log 2>&1 &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID" EXIT
+          sleep 2
+          curl -I http://127.0.0.1:8000/index.html
+          curl -s http://127.0.0.1:8000/index.html | grep "LexReason Sign In"
